@@ -192,3 +192,26 @@ class ProxyManager:
             else:
                 self.get_proxy()
 
+
+class Downloader:
+    """
+    下载器
+    """
+    def __init__(self,proxy_enable=setting.PROXY_ENABLE, proxy_max_num=setting.PROXY_MAX_NUM,
+                 available_proxy=setting.PAROXY_AVAILABLE, proxy_url = setting.PAROXY_URL,
+                 cookeis_enable=setting.COOKIES_ENABLE,timeout=setting.HTTP_TIMEOUT, **kwargs):
+        self.cookies_enable = cookeis_enable
+        self.proxy_enable=proxy_enable
+        self.headers = {
+            "Accept": "text/html, application/xhtml+xml, application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": setting.USER_AGENT,
+        }
+        self.proxy_url = proxy_url
+        if self.proxy_enable:
+            self.proxy_manager = ProxyManager(proxy_max_num, available_proxy, proxy_url)
+        if timeout > 120 or timeout <=0:
+            self.timeout = 30
+        else:
+            self.timeout = timeout
+
+        self.session = requests.Session()
