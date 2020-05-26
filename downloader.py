@@ -124,7 +124,7 @@ class ProxyManager:
 
     def random_choice_proxy(self):
         """
-        随机从 self.rpoxy_list 中获取一个代理，并将该代理从self.proxy_list删除
+        随机从 self.proxy_list 中获取一个代理，并将该代理从self.proxy_list删除
         如果 self.proxy_list 元素较少时，重新加载代理
         :return:
         """
