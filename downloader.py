@@ -26,6 +26,7 @@ import logging
 import traceback
 
 import requests
+from requests.adapters import HTTPAdapter
 
 import log
 import util
@@ -42,8 +43,9 @@ def retry(ExceptionToCheck, tries=2, delay=1, backoff=2):
     :param backoff: 时间间隔系数，每重试一次，时间间隔乘以该参数
     :return:
     """
+
     def deco_retry(f):
-        def f_retry(self,*args, **kwargs):
+        def f_retry(self, *args, **kwargs):
             mtries, mdelay = tries, delay
             while mtries > 0:
                 try:
@@ -58,7 +60,9 @@ def retry(ExceptionToCheck, tries=2, delay=1, backoff=2):
                     # 强制更新代理
                     # self.random_set_proxy(request, force=True)
             raise lastException
+
         return f_retry
+
     return deco_retry
 
 
@@ -66,6 +70,7 @@ class ProxyItem:
     """
     代理对象
     """
+
     def __init__(self, proxy_type=None, host=None, proxy_max_num=10):
         """
 
@@ -101,7 +106,8 @@ class ProxyManager:
     """
     代理管理
     """
-    def __int__(self, proxy_max_num=10, available_proxy=20, proxy_url=None):
+
+    def __init__(self, proxy_max_num=10, available_proxy=20, proxy_url=None):
         """
 
         :param proxy_max_num: 代理最多可连续使用次数
@@ -128,10 +134,10 @@ class ProxyManager:
 
         # 随机重proxy_list 中获取一个代理，并将该代理从proxy_lsit 中删除
         try:
-            index = int(random.random()*len(self.proxy_list))
+            index = int(random.random() * len(self.proxy_list))
             proxy_type, host, port = self.proxy_list.pop(index)
         except:
-            return  None, None
+            return None, None
         else:
             proxy_host = "{}:{}".format(host, port)
             return proxy_type, proxy_host
@@ -197,11 +203,12 @@ class Downloader:
     """
     下载器
     """
-    def __init__(self,proxy_enable=setting.PROXY_ENABLE, proxy_max_num=setting.PROXY_MAX_NUM,
-                 available_proxy=setting.PAROXY_AVAILABLE, proxy_url = setting.PAROXY_URL,
-                 cookeis_enable=setting.COOKIES_ENABLE,timeout=setting.HTTP_TIMEOUT, **kwargs):
+
+    def __init__(self, proxy_enable=setting.PROXY_ENABLE, proxy_max_num=setting.PROXY_MAX_NUM,
+                 available_proxy=setting.PAROXY_AVAILABLE, proxy_url=setting.PAROXY_URL,
+                 cookeis_enable=setting.COOKIES_ENABLE, timeout=setting.HTTP_TIMEOUT, **kwargs):
         self.cookies_enable = cookeis_enable
-        self.proxy_enable=proxy_enable
+        self.proxy_enable = proxy_enable
         self.headers = {
             "Accept": "text/html, application/xhtml+xml, application/xml;q=0.9,*/*;q=0.8",
             "User-Agent": setting.USER_AGENT,
@@ -209,9 +216,152 @@ class Downloader:
         self.proxy_url = proxy_url
         if self.proxy_enable:
             self.proxy_manager = ProxyManager(proxy_max_num, available_proxy, proxy_url)
-        if timeout > 120 or timeout <=0:
+        if timeout > 120 or timeout <= 0:
             self.timeout = 30
         else:
             self.timeout = timeout
 
         self.session = requests.Session()
+        a = requests.adapters.HTTPAdapter(pool_connections=1000,
+                                          pool_maxsize=1000,
+                                          max_retries=0)
+        self.session.mount("http://", a)
+        self.session.mount("https://", a)
+        self.config_id = ''
+        # requests模块支持的参数列表
+        self.requests_module_kwargs = ["params", "data", "json", "headers", "cookies",
+                                       "files", "auth", "timeout", "allow_redirects",
+                                       "proxies", "verify", "stream", "cert"]
+
+        self.keep_status_code = False
+
+    def init_proxy_success(self):
+        """
+        返回初始化代理结果，成功返回True，失败返回False
+        :return:
+        """
+        if self.proxy_enable:
+            if self.proxy_manager.proxy_queue.qsize() > 0:
+                return True
+        return False
+
+    @retry(Exception)
+    def _download(self, request, **kwargs):
+        """
+
+        :param request: 请求字典或请求url
+        :param kwargs:
+        :return:
+        """
+        request = copy.deepcopy(request)
+        url = request.get("url") if isinstance(request, dict) else request
+        response = None
+
+        if self.proxy_enable:
+            proxy_item = self.proxy_manager.get_proxy()
+            proxy_type, proxy_host = proxy_item.get_proxy()
+            if proxy_host is not None:
+                proxy = "{}://{}".format(proxy_type, proxy_host)
+                proxies = {proxy_type: proxy}
+            else:
+                proxies = None
+        else:
+            proxies = None
+
+
+        # 异常是否在本函数中发生， 标志位置
+        is_exc = 0
+
+        try:
+            timeout = gevent.Timeout(self.timeout + 1)
+            timeout.start()
+            try:
+                if "proxies" not in kwargs:
+                    kwargs.update(proxies=proxies)
+
+                kwargs.update({
+                    "stream" : True,
+                    "timeout": self.timeout,
+                })
+
+                default_method = "POST" if "data" in kwargs else "GET"
+
+                keep_status_code = 0
+
+                if isinstance(request, dict):
+                    try:
+                        if request.get("meta", {}).get("keep_status_code", self.keep_status_code):
+                            keep_status_code = 1
+                    except:
+                        pass
+
+                    method = request.get("method")
+                    default_method = method if method is not None else default_method
+
+                    kwargs.update(request)
+
+                    for key in kwargs.keys():
+                        if key not in self.requests_module_kwargs:
+                            kwargs.pop(key)
+                r = self.session.request(default_method, url, **kwargs)
+                response = r
+
+                if r.status_code not in (200, 404, 410):
+                    log.logger.warning("调试信息 下载返回码 {} 请注意 url:{}".format(util.BB(r.status_code), url))
+                    if not keep_status_code:
+                        r.raise_for_status()
+                elif r.status_code in (404, 410):
+                    log.logger.warning("调试信息 下载返回码 {} 请注意 url:{}".format(util.BB(r.status_code), url))
+
+                # 保存当前代理
+                if self.proxy_enable:
+                    self.proxy_manager.put_proxy(proxy_item)
+                try:
+                    response.proxies = kwargs.get("proxies")
+                except Exception as e:
+                    log.logger.error("response 对象增加代理属性失败 {}".format(e))
+            except requests.exceptions.Timeout as e:
+                is_exc = 1
+                raise e
+            except requests.exceptions.RequestException as e:
+                is_exc = 1
+                raise e
+            except Exception as e:
+                is_exc = 1
+                raise e
+            else:
+                response.close()
+        except gevent.Timeout as e:
+            is_exc = 1
+            raise requests.exceptions.Timeout
+        except requests.exceptions.RequestException as e:
+            is_exc=1
+            raise e
+        finally:
+            timeout.cancel()
+
+        return response
+
+    def download(self, requset, **kwargs):
+        """
+
+        :param requset:
+        :param kwargs:
+        :return:
+        """
+        headers = kwargs.get("headers", {})
+        self.headers.update(headers)
+        kwargs.update(headers=self.headers)
+        response = None
+        try:
+            response = self._download(requset, **kwargs)
+        except gevent.Timeout as e:
+            pass
+        except requests.exceptions.Timeout as e:
+            pass
+        except requests.exceptions.RequestException as e:
+            pass
+        except Exception as e:
+            pass
+
+        return response
