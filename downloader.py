@@ -268,7 +268,6 @@ class Downloader:
         else:
             proxies = None
 
-
         # 异常是否在本函数中发生， 标志位置
         is_exc = 0
 
@@ -280,7 +279,7 @@ class Downloader:
                     kwargs.update(proxies=proxies)
 
                 kwargs.update({
-                    "stream" : True,
+                    "stream": True,
                     "timeout": self.timeout,
                 })
 
@@ -335,7 +334,7 @@ class Downloader:
             is_exc = 1
             raise requests.exceptions.Timeout
         except requests.exceptions.RequestException as e:
-            is_exc=1
+            is_exc = 1
             raise e
         finally:
             timeout.cancel()

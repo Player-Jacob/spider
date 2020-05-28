@@ -179,7 +179,7 @@ class MissingSectionHeaderError(ParsingError):
         self.args = (filename, lineno, line)
 
 
-class RawconfigParser:
+class RawConfigParser:
     #
     # Regular expressions for parsing section headers and options.
     #
@@ -659,7 +659,7 @@ class _Chainmap(_UserDict.DictMixin):
         return result
 
 
-class ConfigParser(RawconfigParser):
+class ConfigParser(RawConfigParser):
     """
     Get an option value for a given section.
 
@@ -731,7 +731,7 @@ class ConfigParser(RawconfigParser):
             options.remove("__name__")
 
         if raw:
-            return [(option, d[option] for option in options)]
+            return [(option, d[option]) for option in options]
         else:
             return [(option, self._interpolate(section, option, d[option], d)) for option in options]
 
